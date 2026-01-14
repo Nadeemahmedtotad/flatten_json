@@ -1,0 +1,76 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  fastapi:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+
+  celery_worker:
+    build: .
+    command: python -m celery -A app.celery_app.celery_app worker --loglevel=info
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+    
+  victoriametrics:
+    image: victoriametrics/victoria-metrics
+    ports:
+      - "8428:8428"
+    command:
+      - "--promscrape.config=/etc/prometheus.yml"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus.yml
+    depends_on:
+      - fastapi
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - victoriametrics
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+  locust:
+    image: locustio/locust
+    container_name: locust
+    ports:
+      - "8089:8089"
+    volumes:
+      - ./locust:/locust
+    command: >
+      -f /locust/locustfile.py
+      --host=http://fastapi:8000
+    depends_on:
+      - fastapi
+  
+  flower:
+    image: mher/flower
+    container_name: flower
+    command: >
+      celery
+      --broker=redis://redis:6379/0
+      flower
+      --port=5555
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+      - celery_worker
+
+volumes:
+  grafana_data:
+  victoriametrics_data:
