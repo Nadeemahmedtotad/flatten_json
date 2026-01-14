@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends,Request
+from fastapi import FastAPI, HTTPException, Depends,Request,BackgroundTasks
 from typing import Dict, Any
 
 from app.utils import flatten_json
@@ -23,15 +23,19 @@ app.mount("/metrics", metrics_app)
 
 
 @app.post("/login")
-def login(request: LoginRequest, http_request: Request):
+async def login(
+    request: LoginRequest,
+    http_request: Request,
+    background_tasks: BackgroundTasks
+):
     username = request.username
-    print(username)
     client_ip = http_request.client.host
 
-    # enqueue delayed celery task
-    check_ip.apply_async(
+    # enqueue celery task OUTSIDE request path
+    background_tasks.add_task(
+        check_ip.apply_async,
         args=[username, client_ip],
-        countdown=5  # delayed execution
+        countdown=5
     )
 
     access_token = create_access_token(
@@ -43,7 +47,6 @@ def login(request: LoginRequest, http_request: Request):
         "token_type": "bearer",
         "ip": client_ip
     }
-
 
 @app.post("/flatten")
 def flatten_json_api(payload: Dict[str, Any],
